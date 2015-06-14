@@ -268,6 +268,9 @@
 #include <sys/param.h> // for PATH_MAX
 #include <sys/file.h>
 
+#include <iostream>
+#include <string>
+
 #include "common.h"
 #include "avl.h"
 #include "main.h"
@@ -577,12 +580,17 @@ void CPort::KeyTx(int bKey)
 
    switch(TxKeyMethod) {
       case 1:  // WB2REM / VA3TO interface
+      case 8:  // LA1FTA serial interface for Yaesu DR-1X repeaters
          if(DtmfMethod != 1) {
          // For DtmfMethod 1, tx keying is handled in PollDTMF()
             if(bTxIsKeyed != bTxKeyed) {
                int wrote;
                bTxIsKeyed = bTxKeyed;
-               wrote = pDevice->Write(bTxKeyed ? "T" : "R",1);
+				if(TxKeyMethod == 1) {
+				   wrote = pDevice->Write(bTxKeyed ? "T" : "R", 1);
+				} else if(TxKeyMethod == 8) {
+				   wrote = pDevice->Write(bTxKeyed ? "PTT 1\n" : "PTT 0\n", 6);
+				}
                if(wrote != 1) {
                   LOG_ERROR(("%s: write failed: %s",__FUNCTION__,
                              Err2String(errno)));
@@ -1584,6 +1592,9 @@ void CPort::PollCOS()
    int bCTCSS = FALSE;
    int Bits = 0;
    int bStatusChange = FALSE;
+   int BytesRead;
+   char ByteIn;
+   std::string SerialIn = "";
 #ifdef USB_SUPPORT
    int UsbGPIOData = 0;
 #endif
@@ -1625,6 +1636,30 @@ void CPort::PollCOS()
             bCos = TRUE;
          }
 #endif
+         break;
+	case 9:
+	pDevice->ChangeBit(TIOCM_DTR,TRUE);
+	pDevice->ChangeBit(TIOCM_RTS,TRUE);
+	bCos = bCosActive;
+        while((BytesRead = pDevice->Read(&ByteIn,1)) == 1) {
+            if(ByteIn == '\n' || ByteIn == '\r') { // Command complete
+		DPRINTF(("Serial command for parse: '%s'\n",SerialIn.c_str()));
+		if(SerialIn == "SQL 1") {
+			bCos = TRUE;
+			DPRINTF(("Set COS\n"));
+		} else if(SerialIn == "SQL 0") {
+			bCos = FALSE;
+			DPRINTF(("Unset COS\n"));
+		}
+		SerialIn = "";
+            } else if (BytesRead == 1) {
+	            SerialIn += ByteIn;
+            }
+         }
+
+         if(BytesRead < 0 && errno != EAGAIN) {
+            LOG_ERROR(("PollCOS(): read failed: %s",Err2String(errno)));
+         }
          break;
    }
 
@@ -2102,8 +2137,10 @@ void CPort::AudioCleanup(ClientInfo *p)
       // WB2REM / VA3TO interface
          usleep(1000*DTMFPollTime);
          pDevice->Write("R",1);
-      }
-      else {
+      } else if(TxKeyMethod == 8) {
+      // LA1FTA serial interface
+	pDevice->Write("PTT 0\n", 6);
+      } else {
          KeyTx(FALSE);
       }
    }
@@ -2205,7 +2242,7 @@ int CPort::AudioInit()
          }
       }
 
-      if((RxCosMethod == 7 || RxCosMethod ==  8) && CosPollRate == -1) {
+      if((RxCosMethod == 7 || RxCosMethod ==  8 || RxCosMethod ==  9) && CosPollRate == -1) {
       // User didn't specify a CosPollRate, default it to 50 milliseconds
          CosPollRate = 50;
          LOG_ERROR(("%s: set CosPollRate to %d\n",__FUNCTION__,CosPollRate));
@@ -2391,9 +2428,10 @@ int CPort::EndPointInit()
 
 // ON1ARF
 		7 - /sys/class/gpio/gpioXX/... GPIO writing
+       8 - LA1FTA serial interface for Yaesu DR-1X Repeaters
 
    */
-      if(TxKeyMethod < 0 || TxKeyMethod > 7) {
+      if(TxKeyMethod < 0 || TxKeyMethod > 8) {
          LOG_ERROR(("%s: TxKeyMethod %d is invalid\n",__FUNCTION__,TxKeyMethod));
          Ret = ERR_CONFIG_FILE;
          break;
@@ -2420,9 +2458,10 @@ int CPort::EndPointInit()
          ; 6 - device supporting /dev/input such as USB HID (Linux only)
          ; 7 - USB device GPIO (use method 6 for the iMic)
          ; 8 - PCF8754 I2C expander on iMic
+         ; 9 - LA1FTA serial interface
       */
 
-      if(RxCosMethod < 0 || RxCosMethod > 8) {
+      if(RxCosMethod < 0 || RxCosMethod > 9) {
          LOG_ERROR(("%s: RxCosMethod %d is invalid\n",__FUNCTION__,RxCosMethod));
          Ret = ERR_CONFIG_FILE;
          break;
@@ -2541,8 +2580,8 @@ int CPort::EndPointInit()
             break;
       }
 
-      if((TxKeyMethod == 1 || TxKeyMethod == 3 || TxKeyMethod == 4 ||
-          RxCosMethod == 3 || RxCosMethod == 4 || RxCosMethod == 5 ||
+      if((TxKeyMethod == 1 || TxKeyMethod == 3 || TxKeyMethod == 4 || TxKeyMethod == 8 ||
+          RxCosMethod == 3 || RxCosMethod == 4 || RxCosMethod == 5 || RxCosMethod == 9 ||
           DtmfMethod == 1))
       {  // Need serial port
          if(DevName == NULL) {
@@ -2573,8 +2612,8 @@ int CPort::EndPointInit()
             }
          }
 
-         if(TxKeyMethod == 1 || DtmfMethod == 1) {
-         // WB2REM / VA3TO
+         if(TxKeyMethod == 1 || TxKeyMethod == 8 || DtmfMethod == 1) {
+         // WB2REM / VA3TO / LA1FTA
             SerialDevice *pSerial = dynamic_cast<SerialDevice *>(pDevice);
             if(pSerial == NULL) {
                CORE_DUMP();
