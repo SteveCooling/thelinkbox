@@ -1645,10 +1645,10 @@ void CPort::PollCOS()
             if(ByteIn == '\n' || ByteIn == '\r') { // Command complete
 		DPRINTF(("Serial command for parse: '%s'\n",SerialIn.c_str()));
 		if(SerialIn == "SQL 1") {
-			bCos = TRUE;
+			bCos = InvertCOS ? FALSE : TRUE;
 			DPRINTF(("Set COS\n"));
 		} else if(SerialIn == "SQL 0") {
-			bCos = FALSE;
+			bCos = InvertCOS ? TRUE : FALSE;
 			DPRINTF(("Unset COS\n"));
 		}
 		SerialIn = "";
@@ -1664,7 +1664,7 @@ void CPort::PollCOS()
    }
 
 
-   if(InvertCOS) {
+   if(InvertCOS && RxCosMethod != 9) {
       bCos = !bCos;
    }
 
