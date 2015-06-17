@@ -30,6 +30,7 @@ CreatePort = 2meters
 ; 5 - USB Audio dongle GPIO
 ; 6 - PCF8754 I2C expander on iMic
 ; 7 - GPIO via /sys/class/gpio interface
+; 8 - LA1FTA serial port interface
 TxKeyMethod = 4
 
 ; The following variable selects the method thelinkbox will use to determine
@@ -43,6 +44,7 @@ TxKeyMethod = 4
 ; 6 - device supporting /dev/input such as USB HID (Linux only)
 ; 7 - USB device GPIO (use method 6 for the iMic)
 ; 8 - PCF8754 I2C expander on iMic
+; 9 - LA1FTA serial port interface
 RxCosMethod = 5
 
 ; The following variable sets the minimum amount of time in milliseconds
